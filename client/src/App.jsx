@@ -1,17 +1,25 @@
 import { useEffect } from "react";
 import { io } from "socket.io-client";
+import adapter from "webrtc-adapter";
 
 function App() {
   useEffect(() => {
-    const socket = io("http://localhost:3000/");
+    const socket = io("https://localhost:3000/");
     socket.on("connect", () => {
       console.log(socket.id);
     });
   }, []);
 
+  function enableVideoAudio() {
+    const stream = navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: true,
+    });
+  }
+
   return (
     <>
-      <h1>Hello There</h1>
+      <button onClick={enableVideoAudio}>Enable Stream</button>
     </>
   );
 }

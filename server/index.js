@@ -1,15 +1,26 @@
-import express from "express";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-import http from "http";
+import express from "express";
+import https from "https";
 import { Server } from "socket.io";
 
 dotenv.config();
-
 const app = express();
-const server = http.createServer(app);
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const options = {
+  key: fs.readFileSync(path.join(__dirname, "certs", "cert.key")),
+  cert: fs.readFileSync(path.join(__dirname, "certs", "cert.crt")),
+};
+
+const server = https.createServer(options, app);
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173",
+    origin: "https://localhost:5173",
     methods: ["GET", "POST"],
   },
 });
