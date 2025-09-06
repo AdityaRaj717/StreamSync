@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-const socket = io(import.meta.env.VITE_SERVER_URL || "https://localhost:3000");
+// const socket = io(import.meta.env.VITE_SERVER_URL || "https://localhost:3000");
+const socket = io("https://10.233.154.149:5173/");
 
 const VideoPage = () => {
   const [roomId, setRoomId] = useState("");
@@ -23,6 +24,13 @@ const VideoPage = () => {
 
   // --- SOCKET EVENT LISTENERS ---
   useEffect(() => {
+    socket.on("connect", () => {
+      console.log("✅ Socket connected!", socket.id);
+    });
+
+    socket.on("connect_error", (err) => {
+      console.error("❌ Socket connection error:", err.message);
+    });
     socket.on("update-users", (users) => {
       setUsers(users.filter((user) => user.id !== socket.id));
     });
@@ -53,6 +61,8 @@ const VideoPage = () => {
     );
 
     return () => {
+      socket.off("connect");
+      socket.off("connect_error");
       socket.off("update-users");
       socket.off("incoming-call");
       socket.off("call-finalized");
@@ -60,7 +70,7 @@ const VideoPage = () => {
       socket.off("call-ended");
       socket.off("user-unavailable");
     };
-  }, [socket]);
+  }, []);
 
   // --- MEDIA STREAM EFFECTS ---
   useEffect(() => {
