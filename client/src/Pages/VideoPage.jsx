@@ -12,6 +12,7 @@ const VideoPage = () => {
   const [localStream, setLocalStream] = useState(null);
   const localVideoRef = useRef(null);
   const [incomingCall, setIncomingCall] = useState(null);
+  const [callPartner, setCallPartner] = useState(null);
 
   useEffect(() => {
     socket.on("update-users", (users) => {
@@ -20,39 +21,58 @@ const VideoPage = () => {
     });
 
     socket.on("incoming-call", (data) => {
-      console.log("Receiving incoming call from", data.from);
-      setIncomingCall({
-        from: data.from,
-        offer: data.offer,
-      });
+      setIncomingCall({ from: data.from, offer: data.offer });
     });
 
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
-    }
-
     socket.on("call-finalized", async (data) => {
-      console.log("Call finalized with answer from", data.from);
       if (peerConnectionRef.current) {
-        // Set the remote description for the original caller
         await peerConnectionRef.current.setRemoteDescription(data.answer);
       }
     });
 
     socket.on("ice-candidate", (data) => {
       if (peerConnectionRef.current) {
-        console.log("Receiving ICE candidate");
         peerConnectionRef.current.addIceCandidate(data.candidate);
       }
     });
 
+    socket.on("call-ended", () => {
+      setRemoteStream(null);
+      setCallPartner(null);
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
+    });
+
+    socket.on("user-unavailable", ({ targetId }) => {
+      alert(
+        `User ${targetId.substring(0, 5)}... is currently in another call.`
+      );
+    });
+
+    // Cleanup all listeners
     return () => {
       socket.off("update-users");
-      socket.off("incoming-call"); // Cleanup the new listener
+      socket.off("incoming-call");
       socket.off("call-finalized");
       socket.off("ice-candidate");
+      socket.off("call-ended");
+      socket.off("user-unavailable");
     };
-  }, [socket, localStream]);
+  }, [socket]);
+
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
 
   async function startCamera() {
     try {
@@ -122,6 +142,7 @@ const VideoPage = () => {
     console.log(`Calling user: ${targetId}`);
     // Use our new setup function
     setupPeerConnection(targetId);
+    setCallPartner(targetId);
 
     const offer = await peerConnectionRef.current.createOffer();
     await peerConnectionRef.current.setLocalDescription(offer);
@@ -138,7 +159,7 @@ const VideoPage = () => {
 
     // Use our new setup function
     setupPeerConnection(incomingCall.from);
-
+    setCallPartner(incomingCall.from);
     await peerConnectionRef.current.setRemoteDescription(incomingCall.offer);
 
     const answer = await peerConnectionRef.current.createAnswer();
@@ -150,6 +171,16 @@ const VideoPage = () => {
     });
 
     setIncomingCall(null);
+  }
+
+  function handleHangUp() {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+    }
+    socket.emit("hang-up", { to: callPartner });
+    setRemoteStream(null);
+    setCallPartner(null);
+    peerConnectionRef.current = null;
   }
 
   return (
@@ -221,16 +252,31 @@ const VideoPage = () => {
               key={user.id}
               className="p-2 border-b flex justify-between items-center"
             >
-              <span>{user.id.substring(0, 5)}...</span>
+              <span>
+                {user.id.substring(0, 5)}... ({user.status})
+              </span>
               <button
                 onClick={() => handleCallUser(user.id)}
-                className="bg-green-500 text-white p-1 rounded"
+                className={`bg-green-500 text-white p-1 rounded ${
+                  user.status === "in-call"
+                    ? "opacity-50 cursor-not-allowed"
+                    : ""
+                }`}
+                disabled={user.status === "in-call"}
               >
                 Call
               </button>
             </li>
           ))}
         </ul>
+        {remoteStream && (
+          <button
+            onClick={handleHangUp}
+            className="border-2 p-2 rounded cursor-pointer bg-red-500 text-white mt-4"
+          >
+            Hang Up
+          </button>
+        )}
       </div>
     </div>
   );

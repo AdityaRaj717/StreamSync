@@ -33,6 +33,16 @@ const PORT = process.env.PORT || 3000;
 
 const rooms = {};
 
+// Helper function to find a user's room and data
+function findRoomAndUser(socketId) {
+  for (const roomId in rooms) {
+    if (rooms[roomId].users[socketId]) {
+      return { roomId, user: rooms[roomId].users[socketId] };
+    }
+  }
+  return { roomId: null, user: null };
+}
+
 io.on("connection", (socket) => {
   console.log(`A new user has connected ${socket.id}`);
 
@@ -76,19 +86,61 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-user", (data) => {
-    // The server relays the offer to the target user
-    io.to(data.target).emit("incoming-call", {
-      from: socket.id,
-      offer: data.offer,
-    });
+    const { roomId, user: targetUser } = findRoomAndUser(data.target);
+
+    // Check if the target user is available before sending the call
+    if (targetUser && targetUser.status === "available") {
+      io.to(data.target).emit("incoming-call", {
+        from: socket.id,
+        offer: data.offer,
+      });
+    } else {
+      // Notify the caller that the user is unavailable
+      socket.emit("user-unavailable", { targetId: data.target });
+    }
   });
 
   socket.on("call-accepted", (data) => {
-    // The server relays the answer to the original caller
-    io.to(data.to).emit("call-finalized", {
-      from: socket.id,
-      answer: data.answer,
-    });
+    const { roomId } = findRoomAndUser(socket.id);
+    if (roomId) {
+      const callerId = data.to;
+      const calleeId = socket.id;
+
+      // Update status for both users
+      if (rooms[roomId].users[callerId])
+        rooms[roomId].users[callerId].status = "in-call";
+      if (rooms[roomId].users[calleeId])
+        rooms[roomId].users[calleeId].status = "in-call";
+
+      // Relay the answer
+      io.to(callerId).emit("call-finalized", {
+        from: calleeId,
+        answer: data.answer,
+      });
+
+      // Broadcast the updated user list with new statuses
+      io.to(roomId).emit("update-users", Object.values(rooms[roomId].users));
+    }
+  });
+
+  socket.on("hang-up", (data) => {
+    const { roomId } = findRoomAndUser(socket.id);
+    if (roomId) {
+      const user1Id = socket.id;
+      const user2Id = data.to;
+
+      // Update status for both users back to available
+      if (rooms[roomId].users[user1Id])
+        rooms[roomId].users[user1Id].status = "available";
+      if (rooms[roomId].users[user2Id])
+        rooms[roomId].users[user2Id].status = "available";
+
+      // Notify the other user that the call has ended
+      io.to(user2Id).emit("call-ended");
+
+      // Broadcast the updated user list
+      io.to(roomId).emit("update-users", Object.values(rooms[roomId].users));
+    }
   });
 
   socket.on("ice-candidate", (data) => {
