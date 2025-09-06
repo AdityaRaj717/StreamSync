@@ -6,12 +6,15 @@ import express from "express";
 import https from "https";
 import { Server } from "socket.io";
 
+import homeRouter from "./routes/homeRoute.js";
+
 dotenv.config();
 const app = express();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Https setup
 const options = {
   key: fs.readFileSync(path.join(__dirname, "certs", "cert.key")),
   cert: fs.readFileSync(path.join(__dirname, "certs", "cert.crt")),
@@ -31,8 +34,7 @@ io.on("connection", (socket) => {
   console.log(`A new user has connected ${socket.id}`);
 });
 
-app.get("/", (req, res) => {
-  res.send("<h1>Hello world</h1>");
-});
+// All the routes
+app.use("/", homeRouter);
 
 server.listen(PORT, () => console.log(`Server is listening on PORT: ${PORT}`));
