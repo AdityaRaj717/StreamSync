@@ -74,6 +74,30 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     console.log(`User disconnected ${socket.id}`);
   });
+
+  socket.on("call-user", (data) => {
+    // The server relays the offer to the target user
+    io.to(data.target).emit("incoming-call", {
+      from: socket.id,
+      offer: data.offer,
+    });
+  });
+
+  socket.on("call-accepted", (data) => {
+    // The server relays the answer to the original caller
+    io.to(data.to).emit("call-finalized", {
+      from: socket.id,
+      answer: data.answer,
+    });
+  });
+
+  socket.on("ice-candidate", (data) => {
+    // Relay ICE candidates
+    io.to(data.target).emit("ice-candidate", {
+      from: socket.id,
+      candidate: data.candidate,
+    });
+  });
 });
 
 // All the routes

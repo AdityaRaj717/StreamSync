@@ -1,16 +1,24 @@
-import { useEffect } from "react";
-import { io } from "socket.io-client";
+import { createBrowserRouter, RouterProvider } from "react-router";
+import VideoPage from "./Pages/VideoPage.jsx";
+import Login from "./Pages/Login.jsx";
+
+const router = createBrowserRouter([
+  {
+    path: "/",
+    element: <VideoPage />,
+  },
+  {
+    path: "/login",
+    element: <Login />,
+  },
+]);
 
 function App() {
-  // Connects to the signalling server
-  useEffect(() => {
-    const socket = io("https://localhost:3000/");
-    socket.on("connect", () => {
-      console.log(socket.id);
-    });
-  }, []);
-
-  return <></>;
+  return (
+    <>
+      <RouterProvider router={router} />
+    </>
+  );
 }
 
 export default App;
