@@ -24,7 +24,7 @@ const options = {
 const server = https.createServer(options, app);
 const io = new Server(server, {
   cors: {
-    origin: "https://localhost:5173",
+    origin: ["https://localhost:5173", process.env.VITE_SERVER_URL],
     methods: ["GET", "POST"],
   },
 });

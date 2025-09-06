@@ -1,57 +1,57 @@
-import React, { useRef, useState, useEffect, useMemo } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { io } from "socket.io-client";
 
+// Import the shadcn components you added
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+const socket = io(import.meta.env.VITE_SERVER_URL || "https://localhost:3000");
+
 const VideoPage = () => {
-  const [remoteStream, setRemoteStream] = useState(null);
-  const remoteVideoRef = useRef(null);
-  const peerConnectionRef = useRef(null); // To hold the RTCPeerConnection instance
-  const socket = useMemo(() => io("https://localhost:3000"), []);
   const [roomId, setRoomId] = useState("");
   const [joinRoomId, setJoinRoomId] = useState("");
   const [users, setUsers] = useState([]);
   const [localStream, setLocalStream] = useState(null);
-  const localVideoRef = useRef(null);
+  const [remoteStream, setRemoteStream] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
   const [callPartner, setCallPartner] = useState(null);
 
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const peerConnectionRef = useRef(null);
+
+  // --- SOCKET EVENT LISTENERS ---
   useEffect(() => {
     socket.on("update-users", (users) => {
-      const otherUsers = users.filter((user) => user.id !== socket.id);
-      setUsers(otherUsers);
+      setUsers(users.filter((user) => user.id !== socket.id));
     });
 
-    socket.on("incoming-call", (data) => {
-      setIncomingCall({ from: data.from, offer: data.offer });
-    });
+    socket.on("incoming-call", (data) =>
+      setIncomingCall({ from: data.from, offer: data.offer })
+    );
 
     socket.on("call-finalized", async (data) => {
-      if (peerConnectionRef.current) {
+      if (peerConnectionRef.current)
         await peerConnectionRef.current.setRemoteDescription(data.answer);
-      }
     });
 
     socket.on("ice-candidate", (data) => {
-      if (peerConnectionRef.current) {
+      if (peerConnectionRef.current)
         peerConnectionRef.current.addIceCandidate(data.candidate);
-      }
     });
 
     socket.on("call-ended", () => {
+      if (peerConnectionRef.current) peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
       setRemoteStream(null);
       setCallPartner(null);
-      if (peerConnectionRef.current) {
-        peerConnectionRef.current.close();
-        peerConnectionRef.current = null;
-      }
     });
 
-    socket.on("user-unavailable", ({ targetId }) => {
-      alert(
-        `User ${targetId.substring(0, 5)}... is currently in another call.`
-      );
-    });
+    socket.on("user-unavailable", ({ targetId }) =>
+      alert(`User ${targetId.substring(0, 5)}... is in another call.`)
+    );
 
-    // Cleanup all listeners
     return () => {
       socket.off("update-users");
       socket.off("incoming-call");
@@ -62,18 +62,18 @@ const VideoPage = () => {
     };
   }, [socket]);
 
+  // --- MEDIA STREAM EFFECTS ---
   useEffect(() => {
-    if (localVideoRef.current && localStream) {
+    if (localVideoRef.current && localStream)
       localVideoRef.current.srcObject = localStream;
-    }
   }, [localStream]);
 
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
+    if (remoteVideoRef.current && remoteStream)
       remoteVideoRef.current.srcObject = remoteStream;
-    }
   }, [remoteStream]);
 
+  // --- CORE WEBTRC & APP LOGIC ---
   async function startCamera() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -88,34 +88,17 @@ const VideoPage = () => {
 
   function setupPeerConnection(targetId) {
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-      ],
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
-
-    // Event handler for when an ICE candidate is generated
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        console.log("Sending ICE candidate");
+      if (event.candidate)
         socket.emit("ice-candidate", {
           target: targetId,
           candidate: event.candidate,
         });
-      }
     };
-
-    // Event handler for when the remote stream is added
-    pc.ontrack = (event) => {
-      console.log("Received remote track");
-      setRemoteStream(new MediaStream([event.track]));
-    };
-
-    // Add local stream tracks to the connection
-    localStream.getTracks().forEach((track) => {
-      pc.addTrack(track, localStream);
-    });
-
+    pc.ontrack = (event) => setRemoteStream(new MediaStream([event.track]));
+    localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
     peerConnectionRef.current = pc;
   }
 
@@ -129,118 +112,90 @@ const VideoPage = () => {
   function handleJoinRoom() {
     if (joinRoomId) {
       socket.emit("join-room", joinRoomId, (success) => {
-        if (success) {
-          setRoomId(joinRoomId);
-        } else {
-          alert("Room not found.");
-        }
+        if (success) setRoomId(joinRoomId);
+        else alert("Room not found.");
       });
     }
   }
 
   async function handleCallUser(targetId) {
-    console.log(`Calling user: ${targetId}`);
-    // Use our new setup function
     setupPeerConnection(targetId);
-    setCallPartner(targetId);
-
     const offer = await peerConnectionRef.current.createOffer();
     await peerConnectionRef.current.setLocalDescription(offer);
-
-    socket.emit("call-user", {
-      target: targetId,
-      offer: offer,
-    });
+    socket.emit("call-user", { target: targetId, offer: offer });
+    setCallPartner(targetId);
   }
 
   async function handleAnswerCall() {
     if (!incomingCall) return;
-    console.log("Answering call from", incomingCall.from);
-
-    // Use our new setup function
     setupPeerConnection(incomingCall.from);
-    setCallPartner(incomingCall.from);
     await peerConnectionRef.current.setRemoteDescription(incomingCall.offer);
-
     const answer = await peerConnectionRef.current.createAnswer();
     await peerConnectionRef.current.setLocalDescription(answer);
-
-    socket.emit("call-accepted", {
-      to: incomingCall.from,
-      answer: answer,
-    });
-
+    socket.emit("call-accepted", { to: incomingCall.from, answer: answer });
+    setCallPartner(incomingCall.from);
     setIncomingCall(null);
   }
 
   function handleHangUp() {
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-    }
+    if (peerConnectionRef.current) peerConnectionRef.current.close();
     socket.emit("hang-up", { to: callPartner });
+    peerConnectionRef.current = null;
     setRemoteStream(null);
     setCallPartner(null);
-    peerConnectionRef.current = null;
   }
 
   return (
-    <div className="flex h-screen">
-      <div className="w-3/4 flex flex-col items-center justify-center p-4">
-        <h1 className="text-2xl font-bold mb-4">StreamSync</h1>
-        {roomId && <p className="mb-4">Room ID: {roomId}</p>}
-        <video
-          ref={localVideoRef}
-          autoPlay
-          playsInline
-          muted
-          className="w-full max-w-lg border-2 rounded mb-4"
-        />
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          className="w-full max-w-lg border-2 rounded mb-4 bg-black"
-        />
+    <div className="flex h-screen bg-gray-50">
+      <div className="w-3/4 flex flex-col items-center justify-center p-6">
+        <h1 className="text-4xl font-bold mb-4">StreamSync</h1>
+        {roomId && <p className="text-gray-500 mb-4">Room ID: {roomId}</p>}
 
-        {!localStream && (
-          <button
-            onClick={startCamera}
-            className="border-2 p-2 rounded cursor-pointer bg-blue-500 text-white mb-4"
-          >
-            Start Camera
-          </button>
-        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-5xl">
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full border-2 rounded-lg bg-black"
+          />
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className="w-full border-2 rounded-lg bg-black"
+          />
+        </div>
+
+        <div className="mt-6 space-x-4">
+          {!localStream && <Button onClick={startCamera}>Start Camera</Button>}
+          {remoteStream && (
+            <Button variant="destructive" onClick={handleHangUp}>
+              Hang Up
+            </Button>
+          )}
+        </div>
 
         {!roomId && (
-          <div className="flex flex-col gap-4">
-            <button onClick={handleCreateRoom} className="border-2 p-2 rounded">
-              Create Room
-            </button>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={joinRoomId}
-                onChange={(e) => setJoinRoomId(e.target.value)}
-                placeholder="Enter Room ID"
-                className="border-2 p-2 rounded"
-              />
-              <button onClick={handleJoinRoom} className="border-2 p-2 rounded">
-                Join Room
-              </button>
-            </div>
-          </div>
-        )}
-
-        {incomingCall && (
-          <div className="absolute top-5 left-1/2 -translate-x-1/2 bg-gray-700 text-white p-4 rounded shadow-lg">
-            <p>{incomingCall.from.substring(0, 5)}... is calling you.</p>
-            <button
-              onClick={handleAnswerCall}
-              className="bg-green-500 p-2 rounded mt-2"
-            >
-              Answer
-            </button>
-          </div>
+          <Card className="w-full max-w-sm mt-8">
+            <CardHeader>
+              <CardTitle>Join a Room</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <Button onClick={handleCreateRoom} variant="outline">
+                Create New Room
+              </Button>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="text"
+                  value={joinRoomId}
+                  onChange={(e) => setJoinRoomId(e.target.value)}
+                  placeholder="Enter Room ID"
+                />
+                <Button onClick={handleJoinRoom}>Join Room</Button>
+              </div>
+            </CardContent>
+          </Card>
         )}
       </div>
 
@@ -255,29 +210,29 @@ const VideoPage = () => {
               <span>
                 {user.id.substring(0, 5)}... ({user.status})
               </span>
-              <button
+              <Button
                 onClick={() => handleCallUser(user.id)}
-                className={`bg-green-500 text-white p-1 rounded ${
-                  user.status === "in-call"
-                    ? "opacity-50 cursor-not-allowed"
-                    : ""
-                }`}
+                size="sm"
                 disabled={user.status === "in-call"}
               >
                 Call
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
-        {remoteStream && (
-          <button
-            onClick={handleHangUp}
-            className="border-2 p-2 rounded cursor-pointer bg-red-500 text-white mt-4"
-          >
-            Hang Up
-          </button>
-        )}
       </div>
+
+      {incomingCall && (
+        <Card className="absolute top-5 left-1/2 -translate-x-1/2 shadow-lg animate-pulse">
+          <CardHeader>
+            <CardTitle>Incoming Call</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center gap-4">
+            <p>{incomingCall.from.substring(0, 5)}... is calling.</p>
+            <Button onClick={handleAnswerCall}>Answer</Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };
